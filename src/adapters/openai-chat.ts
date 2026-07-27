@@ -1,5 +1,5 @@
-import type { ProviderAdapter } from "./base";
-import type { AdapterEvent, OcxAssistantMessage, OcxContentPart, OcxMessage, OcxParsedRequest, OcxProviderConfig, OcxTextContent, OcxThinkingContent, OcxToolCall, OcxUsage } from "../types";
+import type { ProviderAdapter, IncomingMeta } from "./base";
+import type { AdapterEvent, OcxAssistantMessage, OcxContentPart, OcxLiveSearchConfig, OcxLiveSearchSource, OcxMessage, OcxParsedRequest, OcxProviderConfig, OcxTextContent, OcxThinkingContent, OcxToolCall, OcxUrlCitation, OcxUsage } from "../types";
 import { isAllowedToolChoice, modelInList, namespacedToolName, resolveToolChoiceWireName, toolAllowedByChoice } from "../types";
 import { mapReasoningEffort, modelRecordValue } from "../reasoning-effort";
 import { redactSecretString } from "../lib/redact";
@@ -480,13 +480,52 @@ function thinkingBudgetForEffort(parsed: OcxParsedRequest, reasoningEffort: stri
   return fraction === undefined ? undefined : Math.max(1, Math.floor(maxBudget * fraction));
 }
 
+// Grok Live Search wire mapping (chat/completions `search_parameters`, legacy xAI wire).
+// Camel->snake at the outer level and inside each `sources[]` entry; unknown keys pass through
+// unchanged so future xAI additions do not require an opencodex bump. Called from buildRequest
+// when the caller's model is on `provider.liveSearchModels` and either Codex enabled web_search
+// or the provider set `liveSearchAlwaysOn: true`. See devlog/260725_grok_live_search.
+//
+// SECURITY: this only emits fields the caller placed in `provider.liveSearch` / `modelLiveSearch`;
+// there is no request-side path from Codex to smuggle extra keys here.
+function liveSearchToWire(cfg: OcxLiveSearchConfig): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (cfg.mode !== undefined) out.mode = cfg.mode;
+  if (cfg.returnCitations !== undefined) out.return_citations = cfg.returnCitations;
+  if (cfg.fromDate !== undefined) out.from_date = cfg.fromDate;
+  if (cfg.toDate !== undefined) out.to_date = cfg.toDate;
+  if (cfg.maxSearchResults !== undefined) out.max_search_results = cfg.maxSearchResults;
+  if (cfg.sources !== undefined) out.sources = cfg.sources.map(liveSearchSourceToWire);
+  return out;
+}
+
+function liveSearchSourceToWire(s: OcxLiveSearchSource): Record<string, unknown> {
+  const out: Record<string, unknown> = { type: s.type };
+  if (s.type === "web") {
+    if (s.country !== undefined) out.country = s.country;
+    if (s.excludedWebsites !== undefined) out.excluded_websites = s.excludedWebsites;
+    if (s.allowedWebsites !== undefined) out.allowed_websites = s.allowedWebsites;
+    if (s.safeSearch !== undefined) out.safe_search = s.safeSearch;
+  } else if (s.type === "news") {
+    if (s.country !== undefined) out.country = s.country;
+    if (s.excludedWebsites !== undefined) out.excluded_websites = s.excludedWebsites;
+    if (s.safeSearch !== undefined) out.safe_search = s.safeSearch;
+  } else if (s.type === "x") {
+    if (s.allowedXHandles !== undefined) out.allowed_x_handles = s.allowedXHandles;
+    if (s.excludedXHandles !== undefined) out.excluded_x_handles = s.excludedXHandles;
+  } else if (s.type === "rss") {
+    out.links = s.links;
+  }
+  return out;
+}
+
 export function createOpenAIChatAdapter(provider: OcxProviderConfig): ProviderAdapter {
   return {
     name: "openai-chat",
 
     formatErrorBody: formatOpenAIChatErrorBody,
 
-    buildRequest(parsed: OcxParsedRequest) {
+    buildRequest(parsed: OcxParsedRequest, incoming?: IncomingMeta) {
       const hasCredential = typeof provider.apiKey === "string" && provider.apiKey.trim().length > 0;
       if ((provider.authMode === "key" || provider.authMode === "oauth") && !provider.keyOptional && !hasCredential) {
         throw new Error(`${provider.adapter} requires a non-empty credential (authMode: ${provider.authMode})`);
@@ -558,6 +597,30 @@ export function createOpenAIChatAdapter(provider: OcxProviderConfig): ProviderAd
         body.stream_options = { include_usage: true };
       }
 
+      // Grok Live Search (`search_parameters`) - provider-config-driven, opt-in per model.
+      // Gate: (a) model is on `provider.liveSearchModels`, (b) either Codex enabled `web_search`
+      // (parsed._webSearch present) OR `provider.liveSearchAlwaysOn === true`, (c) wire version
+      // resolves to `search_parameters` (the legacy xAI wire that third-party Grok proxies still
+      // accept). The Agent-Tools wire (`responses_tools`) belongs on the /v1/responses adapter
+      // and is intentionally a no-op here. Per-model overrides (`modelLiveSearch[modelId]`) merge
+      // on top of provider-wide defaults (`provider.liveSearch`). Web-search sidecar is
+      // short-circuited upstream (src/web-search/index.ts) so the backend runs the search itself.
+      if (
+        modelInList(provider.liveSearchModels, parsed.modelId)
+        && (provider.liveSearchWireVersion ?? "search_parameters") === "search_parameters"
+        && (provider.liveSearchAlwaysOn === true || parsed._webSearch !== undefined)
+      ) {
+        const merged: OcxLiveSearchConfig = {
+          ...(provider.liveSearch ?? {}),
+          ...(provider.modelLiveSearch?.[parsed.modelId] ?? {}),
+        };
+        // Default `return_citations: true` when the caller did not pin it - Codex renders the
+        // "Sources" chip only when the adapter emits web_search_call_end.sources, and citations
+        // are the sole channel Grok chat/completions exposes for that.
+        if (merged.returnCitations === undefined) merged.returnCitations = true;
+        body.search_parameters = liveSearchToWire(merged);
+      }
+
       const url = `${provider.baseUrl}/chat/completions`;
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       // Precedence preserved from pre-#128 behavior: apiKey Authorization first, then
@@ -566,6 +629,31 @@ export function createOpenAIChatAdapter(provider: OcxProviderConfig): ProviderAd
       // never carry Authorization, so keyless providers are unaffected.
       if (hasCredential) headers["Authorization"] = `Bearer ${provider.apiKey}`;
       if (provider.headers) Object.assign(headers, provider.headers);
+      // Per-provider inbound header forwarding. `authorization` is intentionally excluded
+      // so a mis-configured allowlist cannot leak Codex's ChatGPT OAuth token to a third-party
+      // chat-completions backend. Hop-by-hop and framing headers are also skipped.
+      if (incoming?.headers && provider.forwardHeaders?.length) {
+        const HOP_BY_HOP = new Set([
+          "authorization",
+          "content-type",
+          "content-length",
+          "host",
+          "connection",
+          "accept-encoding",
+          "transfer-encoding",
+          "keep-alive",
+          "upgrade",
+          "te",
+          "trailer",
+          "proxy-authorization",
+        ]);
+        for (const name of provider.forwardHeaders) {
+          const lower = name.toLowerCase();
+          if (HOP_BY_HOP.has(lower)) continue;
+          const v = incoming.headers.get(lower);
+          if (v) headers[name] = v;
+        }
+      }
 
       return { url, method: "POST", headers, body: JSON.stringify(body) };
     },
@@ -605,6 +693,23 @@ export function createOpenAIChatAdapter(provider: OcxProviderConfig): ProviderAd
       // explicit `[DONE]` sentinel OR a chunk carrying a non-null `finish_reason` (some
       // OpenAI-compatible providers omit `[DONE]` but do send finish_reason).
       let finishReason: string | undefined;
+      // Grok live-search citations arrive on the FINAL SSE chunk as a top-level `citations: string[]`
+      // (Cherry Studio / xAI Live Search wire; see devlog/260725_grok_live_search). Buffered so a
+      // single begin/end pair is emitted no matter which chunk carries the array, and de-duped so
+      // a provider that repeats it on multiple chunks still yields exactly one Codex "Sources"
+      // item. Emission happens on the terminal boundary (see the `emitCitationsIfAny` helper below).
+      let liveSearchCitations: string[] | undefined;
+      let liveSearchCitationsEmitted = false;
+      let liveSearchCallSeq = 0;
+      const emitCitationsIfAny = function* (): Generator<AdapterEvent> {
+        if (liveSearchCitationsEmitted) return;
+        if (!liveSearchCitations || liveSearchCitations.length === 0) return;
+        liveSearchCitationsEmitted = true;
+        const id = `ls_${++liveSearchCallSeq}`;
+        const sources: OcxUrlCitation[] = liveSearchCitations.map((url) => ({ url }));
+        yield { type: "web_search_call_begin", id };
+        yield { type: "web_search_call_end", id, queries: [], status: "completed", sources };
+      };
 
       // Single per-line handler shared by the streaming loop and the EOF residual-frame flush, so
       // a final frame is parsed identically wherever it lands (no duplicated, drift-prone parsing).
@@ -615,6 +720,7 @@ export function createOpenAIChatAdapter(provider: OcxProviderConfig): ProviderAd
         const payload = line.slice(6).trim();
         if (payload === "[DONE]") {
           yield* flushToolCalls();
+          yield* emitCitationsIfAny();
           const stopReason = finishReason === "length"
             ? "max_tokens"
             : finishReason === "content_filter"
@@ -647,6 +753,14 @@ export function createOpenAIChatAdapter(provider: OcxProviderConfig): ProviderAd
           // delta in the SAME chunk; a bail here would drop that content. The choices
           // guard below no-ops a usage-only chunk.
           pendingUsage = usageFromOpenAIChat(chunk.usage as Record<string, unknown>);
+        }
+
+        // Grok Live Search: final chunk carries `citations: string[]` at the TOP level (not on
+        // `choices[].delta`). Collect from wherever it appears; emission is deferred to the
+        // terminal boundary so the "Sources" chip always follows the assistant message body.
+        if (Array.isArray(chunk.citations)) {
+          const cites = (chunk.citations as unknown[]).filter((c): c is string => typeof c === "string" && c.length > 0);
+          if (cites.length > 0) liveSearchCitations = cites;
         }
 
         const choices = chunk.choices as { delta?: Record<string, unknown>; finish_reason?: string }[] | undefined;
@@ -694,6 +808,7 @@ export function createOpenAIChatAdapter(provider: OcxProviderConfig): ProviderAd
         // atomic sequences (covers "tool_calls" AND providers that close tool turns with "stop").
         if (typeof choices[0].finish_reason === "string" && choices[0].finish_reason) {
           yield* flushToolCalls();
+          yield* emitCitationsIfAny();
         }
         return "continue";
       };
@@ -721,6 +836,7 @@ export function createOpenAIChatAdapter(provider: OcxProviderConfig): ProviderAd
           if ((yield* handleDataLine(buffer)) === "terminate") return;
         }
         yield* flushToolCalls();
+        yield* emitCitationsIfAny();
         // Reader EOF. A graceful close shows at least one terminal signal: `[DONE]` (returns above),
         // a non-null finish_reason (sawFinish), or a trailing usage chunk (providers emit usage only
         // at end-of-generation). If NONE of those were seen, the stream was cut mid-flight — fail
@@ -771,6 +887,16 @@ export function createOpenAIChatAdapter(provider: OcxProviderConfig): ProviderAd
           events.push({ type: "tool_call_start", id: tc.id, name: tc.function.name });
           events.push({ type: "tool_call_delta", arguments: tc.function.arguments });
           events.push({ type: "tool_call_end" });
+        }
+      }
+      // Grok Live Search citations on the non-streaming path also live at the top level.
+      if (Array.isArray(json.citations)) {
+        const cites = (json.citations as unknown[]).filter((c): c is string => typeof c === "string" && c.length > 0);
+        if (cites.length > 0) {
+          const id = `ls_1`;
+          const sources: OcxUrlCitation[] = cites.map((url) => ({ url }));
+          events.push({ type: "web_search_call_begin", id });
+          events.push({ type: "web_search_call_end", id, queries: [], status: "completed", sources });
         }
       }
       const usage = json.usage as Record<string, unknown> | undefined;

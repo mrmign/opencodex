@@ -140,6 +140,10 @@ export function planWebSearch(
   openAiSidecar?: ResolvedOpenAiForwardSidecar,
 ): SidecarPlan | undefined {
   if (!parsed._webSearch || isPassthrough) return undefined;
+  // Provider-native Live Search (Grok `search_parameters` wire) takes over  bypass the sidecar so
+  // the upstream backend performs the search itself, and citations flow via the adapter stream
+  // parser instead of the sidecar loop. Whitelist is per-model (see OcxProviderConfig.liveSearchModels).
+  if (modelInList(provider.liveSearchModels, modelId)) return undefined;
   const cfg = config.webSearchSidecar ?? {};
   if (cfg.enabled === false) return undefined;
   const timeoutMs = cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS;

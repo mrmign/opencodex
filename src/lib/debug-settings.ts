@@ -14,6 +14,7 @@ export const DEBUG_ENV = {
   usage: "OPENCODEX_USAGE_DEBUG",
   injection: "OCX_INJECTION_DEBUG",
   claude: "OCX_CLAUDE_DEBUG",
+  codex: "OCX_CODEX_DEBUG",
 } as const;
 
 /** Legacy env var that still enables provider debug logging. */
@@ -26,6 +27,7 @@ export interface DebugSettingsView {
   usage: boolean;
   injection: boolean;
   claude: boolean;
+  codex: boolean;
   runtimeOverride: Partial<Record<DebugFlag, boolean>>;
   env: Record<DebugFlag, boolean>;
 }
@@ -67,24 +69,32 @@ export function isClaudeDebugEnabled(): boolean {
   return envFlag(DEBUG_ENV.claude);
 }
 
+/** Codex inbound /v1/responses request dump (default OFF; env OCX_CODEX_DEBUG=1). */
+export function isCodexDebugEnabled(): boolean {
+  if (runtimeOverride.codex !== undefined) return runtimeOverride.codex;
+  return envFlag(DEBUG_ENV.codex);
+}
+
 export function getDebugSettings(): DebugSettingsView {
   return {
     enabled: isDebugEnabled(),
     usage: isUsageDebugEnabled(),
     injection: isInjectionDebugEnabled(),
     claude: isClaudeDebugEnabled(),
+    codex: isCodexDebugEnabled(),
     runtimeOverride: { ...runtimeOverride },
     env: {
       debug: envFlag(DEBUG_ENV.debug) || legacyDebugEnvEnabled(),
       usage: envFlag(DEBUG_ENV.usage),
       injection: envFlag(DEBUG_ENV.injection),
       claude: envFlag(DEBUG_ENV.claude),
+      codex: envFlag(DEBUG_ENV.codex),
     },
   };
 }
 
 export function setDebugSettings(partial: Partial<Record<DebugFlag, boolean>>): DebugSettingsView {
-  for (const key of ["debug", "usage", "injection", "claude"] as const) {
+  for (const key of ["debug", "usage", "injection", "claude", "codex"] as const) {
     if (partial[key] !== undefined) runtimeOverride[key] = partial[key];
   }
   return getDebugSettings();
@@ -96,7 +106,7 @@ export function clearDebugSetting(flag: DebugFlag): DebugSettingsView {
 }
 
 export function clearDebugSettings(): DebugSettingsView {
-  for (const key of ["debug", "usage", "injection", "claude"] as const) {
+  for (const key of ["debug", "usage", "injection", "claude", "codex"] as const) {
     delete runtimeOverride[key];
   }
   return getDebugSettings();
