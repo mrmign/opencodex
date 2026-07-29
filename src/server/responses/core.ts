@@ -26,6 +26,7 @@ import {
   targetKey,
 } from "../../combos";
 import { isInjectionDebugEnabled } from "../../lib/debug-settings";
+import { dumpCodexInboundRequest } from "./codex-inbound-debug";
 import { injectionDebugLog } from "../../lib/injection-debug-log";
 import { resolveClientRetryAfter } from "../../lib/retry-after";
 import { modelInList, namespacedToolName } from "../../types";
@@ -863,6 +864,7 @@ export async function handleResponses(
   } catch (err) {
     return decodeRequestErrorResponse(err, "responses");
   }
+  dumpCodexInboundRequest(req, body);
   const comboId = !options.comboAttempt ? comboIdFromRawBody(body, config) : null;
   if (comboId && Object.hasOwn(config.combos ?? {}, comboId)) {
     return handleComboResponses(req, body, comboId, config, logCtx, options);
