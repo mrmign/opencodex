@@ -292,7 +292,7 @@ describe("provider registry parity", () => {
       liveModels: false,
     });
     expect(entry?.models).toEqual([
-      "auto",
+      "auto", "ark-code-latest",
       "doubao-seed-2.0-mini", "doubao-seed-2.0-lite",
       "deepseek-v4-flash",
       "doubao-seed-2.1-turbo", "doubao-seed-evolving",
@@ -335,6 +335,7 @@ describe("provider registry parity", () => {
       "deepseek-v4-pro": 393_216,
       "kimi-k3": 131_072,
     });
+    expect(entry?.modelInputModalities?.["ark-code-latest"]).toEqual(["text"]);
     expect(entry?.modelInputModalities?.["deepseek-v4-flash"]).toEqual(["text"]);
     expect(entry?.modelInputModalities?.["kimi-k3"]).toEqual(["text"]);
 

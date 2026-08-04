@@ -107,7 +107,7 @@ const ANTHROPIC_MODELS = ["claude-fable-5", "claude-sonnet-5", "claude-opus-5", 
 const ANTHROPIC_MODEL_CONTEXT_WINDOWS: Record<string, number> = { "claude-sonnet-5": 1_000_000, "claude-fable-5": 1_000_000, "claude-opus-5": 1_000_000, "claude-opus-4-8": 1_000_000, "claude-haiku-4-5": 200_000 };
 
 const VOLCENGINE_ARK_AGENT_PLAN_MODELS = [
-  "auto",
+  "auto", "ark-code-latest",
   "doubao-seed-2.0-mini", "doubao-seed-2.0-lite",
   "deepseek-v4-flash",
   "doubao-seed-2.1-turbo", "doubao-seed-evolving",
