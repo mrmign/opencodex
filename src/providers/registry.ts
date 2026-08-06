@@ -112,9 +112,9 @@ const VOLCENGINE_ARK_AGENT_PLAN_MODELS = [
   "deepseek-v4-flash",
   "doubao-seed-2.1-turbo", "doubao-seed-evolving",
   "doubao-seed-2.0-code", "doubao-seed-2.0-pro",
-  "minimax-m2.7", "minimax-m3",
+  "minimax-m3",
   "glm-5.2",
-  "kimi-k2.6", "kimi-k2.7-code",
+  "kimi-k2.7-code",
   "deepseek-v4-pro",
   "kimi-k3",
 ];
@@ -126,10 +126,8 @@ const VOLCENGINE_ARK_AGENT_PLAN_CONTEXT_WINDOWS: Record<string, number> = {
   "doubao-seed-evolving": 1_048_576,
   "doubao-seed-2.0-code": 262_144,
   "doubao-seed-2.0-pro": 262_144,
-  "minimax-m2.7": 204_800,
   "minimax-m3": 524_288,
   "glm-5.2": 1_048_576,
-  "kimi-k2.6": 262_144,
   "kimi-k2.7-code": 262_144,
   "deepseek-v4-pro": 1_048_576,
   "kimi-k3": 1_048_576,
@@ -142,16 +140,21 @@ const VOLCENGINE_ARK_AGENT_PLAN_MAX_OUTPUT_TOKENS: Record<string, number> = {
   "doubao-seed-evolving": 262_144,
   "doubao-seed-2.0-code": 131_072,
   "doubao-seed-2.0-pro": 131_072,
-  "minimax-m2.7": 131_072,
   "minimax-m3": 131_072,
   "glm-5.2": 131_072,
-  "kimi-k2.6": 32_768,
   "kimi-k2.7-code": 32_768,
   "deepseek-v4-pro": 393_216,
   "kimi-k3": 131_072,
 };
+const VOLCENGINE_ARK_AGENT_PLAN_VISION_MODELS = new Set([
+  "doubao-seed-2.1-turbo", "doubao-seed-evolving",
+  "doubao-seed-2.0-code", "doubao-seed-2.0-pro",
+  "kimi-k2.7-code", "deepseek-v4-pro", "kimi-k3",
+]);
 const VOLCENGINE_ARK_AGENT_PLAN_INPUT_MODALITIES: Record<string, string[]> = Object.fromEntries(
-  VOLCENGINE_ARK_AGENT_PLAN_MODELS.filter(id => id !== "auto").map(id => [id, ["text"]]),
+  VOLCENGINE_ARK_AGENT_PLAN_MODELS
+    .filter(id => id !== "auto")
+    .map(id => [id, VOLCENGINE_ARK_AGENT_PLAN_VISION_MODELS.has(id) ? ["text", "image"] : ["text"]]),
 );
 
 const ZAI_GLM_52_MODELS = ["glm-5.2", "glm-5.2[1m]"];

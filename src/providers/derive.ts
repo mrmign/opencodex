@@ -1,4 +1,4 @@
-import type { CodexAccountMode, OcxProviderConfig } from "../types";
+import type { CodexAccountMode, OcxConfig, OcxProviderConfig } from "../types";
 import { PROVIDER_REGISTRY, type ProviderRegistryEntry } from "./registry";
 
 export interface DerivedKeyLoginProvider {
@@ -228,7 +228,12 @@ export function enrichProviderFromRegistry(name: string, prov: OcxProviderConfig
   if (!prov.defaultModel && seed.defaultModel) prov.defaultModel = seed.defaultModel;
   // Fill mode only when absent: an explicit persisted `direct` must never be overwritten.
   if (prov.codexAccountMode === undefined && seed.codexAccountMode !== undefined) prov.codexAccountMode = seed.codexAccountMode;
-  if (!prov.models && seed.models) prov.models = [...seed.models];
+  // A static registry preset owns its official model allowlist across upgrades. Persisted configs
+  // contain a snapshot from install/login time, so treating that snapshot as a user override hides
+  // newly added models and retains retired ones forever. Users hide official rows via
+  // disabledModels and add non-registry rows via customModels; dynamic/custom providers keep their
+  // configured model lists unchanged.
+  if (seed.models && (!prov.models || seed.liveModels === false)) prov.models = [...seed.models];
   if (prov.liveModels === undefined && seed.liveModels !== undefined) prov.liveModels = seed.liveModels;
   if (prov.contextWindow === undefined && seed.contextWindow !== undefined) prov.contextWindow = seed.contextWindow;
   if (!prov.modelContextWindows && seed.modelContextWindows) prov.modelContextWindows = { ...seed.modelContextWindows };
@@ -257,6 +262,28 @@ export function enrichProviderFromRegistry(name: string, prov: OcxProviderConfig
   if (prov.modelSuffixBracketStrip === undefined && seed.modelSuffixBracketStrip !== undefined) prov.modelSuffixBracketStrip = seed.modelSuffixBracketStrip;
   if (prov.responsesPath === undefined && seed.responsesPath !== undefined) prov.responsesPath = seed.responsesPath;
   if (!prov.headers && seed.headers) prov.headers = { ...seed.headers };
+}
+
+/**
+ * Replace stale persisted model snapshots for configured static registry providers.
+ *
+ * Returns the provider ids that changed so sync callers can avoid rewriting config.json when the
+ * file is already current. Dynamic providers and unknown/custom providers remain user-owned.
+ */
+export function syncStaticRegistryModelLists(config: OcxConfig): string[] {
+  const changed: string[] = [];
+  for (const entry of PROVIDER_REGISTRY) {
+    if (entry.liveModels !== false || !entry.models) continue;
+    const provider = config.providers[entry.id];
+    if (!provider) continue;
+    const current = provider.models;
+    if (current?.length === entry.models.length && current.every((model, index) => model === entry.models![index])) {
+      continue;
+    }
+    provider.models = [...entry.models];
+    changed.push(entry.id);
+  }
+  return changed;
 }
 
 export function deriveFeaturedProviderIds(): string[] {

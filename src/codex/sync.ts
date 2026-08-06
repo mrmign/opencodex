@@ -1,10 +1,11 @@
 import { currentExternalCodexModelProvider, injectCodexConfig } from "./inject";
 import { printProjectCodexConfigWarnings, groupProjectCodexConfigWarningsByPath, type ProjectCodexConfigWarning } from "./project-config-warnings";
 import { refreshCodexModelCatalog } from "./refresh";
-import { applyProxyEnv, loadConfig } from "../config";
+import { applyProxyEnv, loadConfig, saveConfigPreservingClaudeCode } from "../config";
 import type { OcxConfig } from "../types";
 import { collectOrcaCodexHomeDiagnostic } from "./home";
 import { summarizeComboCatalogOmissions, type ComboCatalogOmission } from "./catalog/aggregation";
+import { syncStaticRegistryModelLists } from "../providers/derive";
 
 export interface CodexSyncResult {
   ok: boolean;
@@ -52,6 +53,11 @@ export async function syncModelsToCodex(
   deps: CodexSyncDeps = defaultDeps,
 ): Promise<CodexSyncResult> {
   const p = port ?? config.port ?? 10100;
+  const updatedStaticProviders = syncStaticRegistryModelLists(config);
+  if (updatedStaticProviders.length > 0) {
+    saveConfigPreservingClaudeCode(config);
+    log?.log(`   Updated static provider models in config: ${updatedStaticProviders.join(", ")}`);
+  }
   const externalProvider = (deps.currentExternalCodexModelProvider ?? currentExternalCodexModelProvider)();
   if (externalProvider) {
     const result = await deps.injectCodexConfig(p, config, {});

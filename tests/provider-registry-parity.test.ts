@@ -11,6 +11,7 @@ import {
   deriveKeyLoginMap,
   deriveProviderPresets,
   providerConfigSeed,
+  syncStaticRegistryModelLists,
 } from "../src/providers/derive";
 import { PROVIDER_REGISTRY } from "../src/providers/registry";
 import { FREE_PROVIDER_DIRECTORY } from "../src/providers/free-directory";
@@ -297,9 +298,9 @@ describe("provider registry parity", () => {
       "deepseek-v4-flash",
       "doubao-seed-2.1-turbo", "doubao-seed-evolving",
       "doubao-seed-2.0-code", "doubao-seed-2.0-pro",
-      "minimax-m2.7", "minimax-m3",
+      "minimax-m3",
       "glm-5.2",
-      "kimi-k2.6", "kimi-k2.7-code",
+      "kimi-k2.7-code",
       "deepseek-v4-pro",
       "kimi-k3",
     ]);
@@ -311,10 +312,8 @@ describe("provider registry parity", () => {
       "doubao-seed-evolving": 1_048_576,
       "doubao-seed-2.0-code": 262_144,
       "doubao-seed-2.0-pro": 262_144,
-      "minimax-m2.7": 204_800,
       "minimax-m3": 524_288,
       "glm-5.2": 1_048_576,
-      "kimi-k2.6": 262_144,
       "kimi-k2.7-code": 262_144,
       "deepseek-v4-pro": 1_048_576,
       "kimi-k3": 1_048_576,
@@ -327,17 +326,27 @@ describe("provider registry parity", () => {
       "doubao-seed-evolving": 262_144,
       "doubao-seed-2.0-code": 131_072,
       "doubao-seed-2.0-pro": 131_072,
-      "minimax-m2.7": 131_072,
       "minimax-m3": 131_072,
       "glm-5.2": 131_072,
-      "kimi-k2.6": 32_768,
       "kimi-k2.7-code": 32_768,
       "deepseek-v4-pro": 393_216,
       "kimi-k3": 131_072,
     });
+    for (const retiredModel of ["kimi-k2.6", "minimax-m2.7"]) {
+      expect(entry?.models).not.toContain(retiredModel);
+      expect(entry?.modelContextWindows).not.toHaveProperty(retiredModel);
+      expect(entry?.modelMaxOutputTokens).not.toHaveProperty(retiredModel);
+      expect(entry?.modelInputModalities).not.toHaveProperty(retiredModel);
+    }
     expect(entry?.modelInputModalities?.["ark-code-latest"]).toEqual(["text"]);
     expect(entry?.modelInputModalities?.["deepseek-v4-flash"]).toEqual(["text"]);
-    expect(entry?.modelInputModalities?.["kimi-k3"]).toEqual(["text"]);
+    for (const model of [
+      "doubao-seed-2.1-turbo", "doubao-seed-evolving",
+      "doubao-seed-2.0-code", "doubao-seed-2.0-pro",
+      "kimi-k2.7-code", "deepseek-v4-pro", "kimi-k3",
+    ]) {
+      expect(entry?.modelInputModalities?.[model]).toEqual(["text", "image"]);
+    }
 
     expect(KEY_LOGIN_PROVIDERS["volcengine-ark-agent-plan"]).toMatchObject({
       adapter: "openai-responses",
@@ -382,6 +391,49 @@ describe("provider registry parity", () => {
         responsesPath: "/responses",
         defaultModel: "auto",
       });
+  });
+
+  test("static registry presets replace stale persisted model snapshots", async () => {
+    const { enrichProviderFromRegistry } = await import("../src/providers/derive");
+    const staleArk: OcxProviderConfig = {
+      adapter: "openai-responses",
+      baseUrl: "https://ark.cn-beijing.volces.com/api/plan/v3",
+      models: ["auto", "kimi-k2.6", "minimax-m2.7"],
+      liveModels: false,
+    };
+
+    enrichProviderFromRegistry("volcengine-ark-agent-plan", staleArk);
+
+    expect(staleArk.models).toContain("ark-code-latest");
+    expect(staleArk.models).not.toContain("kimi-k2.6");
+    expect(staleArk.models).not.toContain("minimax-m2.7");
+
+    const dynamicUserList: OcxProviderConfig = {
+      adapter: "openai-chat",
+      baseUrl: "https://api.x.ai/v1",
+      models: ["user-selected-model"],
+      liveModels: true,
+    };
+    enrichProviderFromRegistry("xai", dynamicUserList);
+    expect(dynamicUserList.models).toEqual(["user-selected-model"]);
+
+    const persisted = {
+      port: 10100,
+      defaultProvider: "volcengine-ark-agent-plan",
+      providers: {
+        "volcengine-ark-agent-plan": {
+          ...staleArk,
+          models: ["auto", "kimi-k2.6", "minimax-m2.7"],
+        },
+        xai: dynamicUserList,
+      },
+    } as OcxConfig;
+    expect(syncStaticRegistryModelLists(persisted)).toEqual(["volcengine-ark-agent-plan"]);
+    expect(persisted.providers["volcengine-ark-agent-plan"]?.models).toContain("ark-code-latest");
+    expect(persisted.providers["volcengine-ark-agent-plan"]?.models).not.toContain("kimi-k2.6");
+    expect(persisted.providers["volcengine-ark-agent-plan"]?.models).not.toContain("minimax-m2.7");
+    expect(persisted.providers.xai?.models).toEqual(["user-selected-model"]);
+    expect(syncStaticRegistryModelLists(persisted)).toEqual([]);
   });
 
   test("aggregator defaults and Neuralwatt seeds match the audited live catalogs", () => {
