@@ -299,7 +299,7 @@ describe("provider registry parity", () => {
       "doubao-seed-2.1-turbo", "doubao-seed-evolving",
       "doubao-seed-2.0-code", "doubao-seed-2.0-pro",
       "minimax-m3",
-      "glm-5.2",
+      "glm-5.2", "glm-5.3",
       "kimi-k2.7-code",
       "deepseek-v4-pro",
       "kimi-k3",
@@ -314,6 +314,7 @@ describe("provider registry parity", () => {
       "doubao-seed-2.0-pro": 262_144,
       "minimax-m3": 524_288,
       "glm-5.2": 1_048_576,
+      "glm-5.3": 1_048_576,
       "kimi-k2.7-code": 262_144,
       "deepseek-v4-pro": 1_048_576,
       "kimi-k3": 1_048_576,
@@ -328,6 +329,7 @@ describe("provider registry parity", () => {
       "doubao-seed-2.0-pro": 131_072,
       "minimax-m3": 131_072,
       "glm-5.2": 131_072,
+      "glm-5.3": 131_072,
       "kimi-k2.7-code": 32_768,
       "deepseek-v4-pro": 393_216,
       "kimi-k3": 131_072,
@@ -340,6 +342,8 @@ describe("provider registry parity", () => {
     }
     expect(entry?.modelInputModalities?.["ark-code-latest"]).toEqual(["text"]);
     expect(entry?.modelInputModalities?.["deepseek-v4-flash"]).toEqual(["text"]);
+    expect(entry?.modelInputModalities?.["glm-5.3"])
+      .toEqual(entry?.modelInputModalities?.["glm-5.2"]);
     for (const model of [
       "doubao-seed-2.1-turbo", "doubao-seed-evolving",
       "doubao-seed-2.0-code", "doubao-seed-2.0-pro",
