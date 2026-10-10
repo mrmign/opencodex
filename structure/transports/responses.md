@@ -16,7 +16,7 @@ HTTP ingress applies the [caller header contract](../data-planes/inbound-compat.
 provider, lets the selected adapter speak the upstream protocol, then bridges adapter events back to
 Responses-compatible streaming output. The routed provider name follows every adapter build, including retries and continuations; only `github-copilot` injects a configured `modelContextTiers` value as upstream `contextTier`, while unconfigured passthrough retains the caller field. For an opted-in key-auth provider, a hosted-search continuation stays bound to the API-key selection that served the first leg; the contract is the [hosted-search continuation binding](../providers-and-adapters.md#hosted-search-continuation-binding).
 
-The `openai-responses` adapter preserves caller `User-Agent` unless provider headers own it, in either auth mode.
+The `openai-responses` adapter fills missing `User-Agent` and `session-id` headers from the caller in either auth mode.
 `forwardClientHeaders` additionally opts into `originator`, `x-client-request-id`, `x-codex-app-version`, or `user-agent`.
 Provider headers win case-insensitively; arbitrary names are rejected on load/write and ignored at runtime.
 Canonical forward auth retains its separate fixed credential/metadata allowlist; absent caller identity is not invented.

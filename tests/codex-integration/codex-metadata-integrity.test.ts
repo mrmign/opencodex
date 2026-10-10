@@ -161,7 +161,7 @@ describe("Codex metadata integrity", () => {
     expect(sync.headers["thread-id"]).toBe("thread-real-2");
   });
 
-  test("Responses preserves caller User-Agent as a fallback in key and forward modes", async () => {
+  test("custom Responses providers preserve caller User-Agent and session-id fallbacks", async () => {
     for (const provider of [
       {
         adapter: "openai-responses",
@@ -171,28 +171,33 @@ describe("Codex metadata integrity", () => {
       },
       {
         adapter: "openai-responses",
-        baseUrl: "https://chatgpt.com/backend-api/codex",
+        baseUrl: "https://gateway.example/v1",
         authMode: "forward",
+        headers: { authorization: "Bearer provider-token" },
       },
     ] satisfies OcxProviderConfig[]) {
       const request = await createResponsesPassthroughAdapter(provider).buildRequest(minimalParsed(), {
-        headers: new Headers({ "User-Agent": "codex_cli_rs/0.154.0" }),
+        headers: new Headers({ "User-Agent": "codex_cli_rs/0.154.0", "session-id": "session-real-3" }),
       });
       expect(new Headers(request.headers).get("user-agent")).toBe("codex_cli_rs/0.154.0");
+      expect(new Headers(request.headers).get("session-id")).toBe("session-real-3");
     }
   });
 
-  test("configured User-Agent wins case-insensitively and a missing caller value stays absent", async () => {
+  test("configured User-Agent and session-id win case-insensitively and missing values stay absent", async () => {
     const configured = await createResponsesPassthroughAdapter({
       adapter: "openai-responses",
       baseUrl: "https://gateway.example/v1",
       authMode: "key",
-      headers: { "uSeR-aGeNt": "operator-agent/1" },
+      headers: { "uSeR-aGeNt": "operator-agent/1", "SeSsIoN-Id": "operator-session" },
     }).buildRequest(minimalParsed(), {
-      headers: new Headers({ "User-Agent": "caller-agent/1" }),
+      headers: new Headers({ "User-Agent": "caller-agent/1", "session-id": "caller-session" }),
     });
     expect(new Headers(configured.headers).get("user-agent")).toBe("operator-agent/1");
+    expect(new Headers(configured.headers).get("session-id")).toBe("operator-session");
     expect(Object.keys(configured.headers).filter(name => name.toLowerCase() === "user-agent"))
+      .toHaveLength(1);
+    expect(Object.keys(configured.headers).filter(name => name.toLowerCase() === "session-id"))
       .toHaveLength(1);
 
     const absent = await createResponsesPassthroughAdapter({
@@ -201,6 +206,7 @@ describe("Codex metadata integrity", () => {
       authMode: "key",
     }).buildRequest(minimalParsed(), { headers: new Headers() });
     expect(new Headers(absent.headers).has("user-agent")).toBe(false);
+    expect(new Headers(absent.headers).has("session-id")).toBe(false);
   });
 
   test("the preserved User-Agent is the value received by the HTTP upstream", async () => {

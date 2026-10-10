@@ -145,9 +145,9 @@ body and response, with narrow compatibility rewrites for routed gateways.
 `forward` uses configured static headers without relaying caller authorization; `key` uses the
 configured provider key.
 
-The adapter preserves the incoming client's `User-Agent` as a fallback in both auth modes because
-some Responses-compatible providers use the Codex client fingerprint for compatibility behavior.
-An explicitly configured provider `User-Agent` remains authoritative regardless of header casing;
+The adapter preserves the incoming client's `User-Agent` and `session-id` as fallbacks in both auth
+modes because some Responses-compatible providers use the Codex client fingerprint and conversation
+identity for compatibility behavior. The fallbacks preserve existing headers regardless of casing;
 if the caller sends none, OpenCodex does not invent one. Additional caller metadata can be selected
 with `forwardClientHeaders`; provider `headers` win for this option, and credential or transport-owned
 names are refused. Canonical ChatGPT forward auth retains its separate fixed header allowlist.

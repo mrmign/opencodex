@@ -112,6 +112,15 @@ function applyConfiguredClientHeaderForwarding(
   }
 }
 
+function applyCallerSessionIdFallback(
+  headers: Record<string, string>,
+  incoming: IncomingMeta,
+): void {
+  if (Object.keys(headers).some(name => name.toLowerCase() === "session-id")) return;
+  const sessionId = incoming.headers.get("session-id");
+  if (sessionId) headers["session-id"] = sessionId;
+}
+
 /** Replace every `input_image` part under a routed-compaction body with a short marker. */
 function stripInputImagesDeep(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripInputImagesDeep);
@@ -273,11 +282,12 @@ export function createResponsesPassthroughAdapter(provider: OcxProviderConfig): 
         if (provider.apiKey) headers["Authorization"] = `Bearer ${provider.apiKey}`;
         if (provider.headers) Object.assign(headers, provider.headers);
       }
-      // Some Responses-compatible gateways select their Codex compatibility path from the real
-      // client fingerprint. Additional caller metadata is opt-in; static provider headers remain
-      // authoritative in either auth mode.
+      // Some Responses-compatible gateways select compatibility and affinity from the real client
+      // fingerprint and session. Other caller metadata is opt-in; static provider headers remain
+      // authoritative for these fallbacks in either auth mode.
       applyConfiguredClientHeaderForwarding(headers, incoming, provider);
       applyCallerUserAgentFallback(headers, incoming);
+      applyCallerSessionIdFallback(headers, incoming);
 
       const forward = provider.authMode === "forward";
       let convertedRoutedCustomToolNames: Set<string> | undefined;
